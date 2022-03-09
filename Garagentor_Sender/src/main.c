@@ -9,7 +9,7 @@
 #define TAG_GPS "GPS"
 
 /*---- GPS ----*/
-/* 
+
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
@@ -23,10 +23,12 @@
 #define TAG_DISPLAY "Display"
 
 
-#define ECHO_TEST_TXD (27)
+#define ECHO_TEST_TXD (17)
 #define ECHO_TEST_RXD (16)
+#define BUF_SIZE 1024
 
-*/
+
+
 
 
 /*-- functions --*/
@@ -35,15 +37,26 @@ void setup_lora();
 void task_tx(void *p);
 void gpio_init();
 void gpio_read();
+void initGPS();
+
+void checkVariable(char *laengenGrad,char *laengenRichtung,char *breitenGrad,char *breitenRichtung);
+void setVariable(char *laengenGrad,char *laengenRichtung,char *breitenGrad,char *breitenRichtung);
+char *roundChar(char *string);
+void task_tx(void *p);
+void setup_lora();
+void readGPS(char *base, int length);
+static void echo_task();
+void test_GPS(int uart_num, char *data);
 
 /*-- GPIO --*/
 static const int BUTTON_PIN = 4;
-static bool input_state = 0;
+static volatile bool input_state = 0;
 
 void app_main()
 {
 	gpio_init();
 	init_lora();
+	initGPS();
 }
 
 
@@ -51,7 +64,7 @@ void app_main()
 void init_lora()
 {
 	setup_lora();
-	xTaskCreate(&task_tx, "task_tx", 2048, NULL, 5, NULL);
+	xTaskCreate(&task_tx, "task_tx", 4096, NULL, 5, NULL);
 }
 
 void setup_lora()
@@ -77,7 +90,7 @@ void task_tx(void *p)
 		{
 			lora_send_packet((uint8_t *)"open", 8);
 			printf("packet sent...\n");
-			vTaskDelay(pdMS_TO_TICKS(5000));
+			vTaskDelay(pdMS_TO_TICKS(20000));
 		}
 	}
 }
@@ -85,6 +98,11 @@ void task_tx(void *p)
 /* ------------------------------ GPIO ------------------------------------ */
 void gpio_read(){
 	input_state = gpio_get_level(BUTTON_PIN);
+	if (input_state)
+		{
+			checkVariable("4921.710", "N", "704.520", "E");
+		}
+	
 }
 
 void gpio_init()
@@ -94,25 +112,28 @@ void gpio_init()
 
 /* ------------------------------ GPS ------------------------------------ */
 
-/* 
+
 char lGV[32];
 char lRV[32];
 char bGV[32];
 char bRV[32];
 
 void checkVariable(char *laengenGrad,char *laengenRichtung,char *breitenGrad,char *breitenRichtung) {
+	printf("laengenGrad:%s--%s\n", lGV, laengenGrad);
+	printf("breitenGrad:%s--%s\n", bGV, breitenGrad);
+	input_state = 0;
     if (strcmp(lGV, laengenGrad) == 0) {
-        printf("laengenGrad:%s--%s", lGV, laengenGrad);
+        // printf("laengenGrad:%s--%s", lGV, laengenGrad);
         if (strcmp(lRV, laengenRichtung) == 0) {
-            printf("\nlaengenRichtung:%s--%s", lRV, laengenRichtung);
+            // printf("\nlaengenRichtung:%s--%s", lRV, laengenRichtung);
             if (strcmp(bGV, breitenGrad) == 0) {
-                printf("\nbreitenGrad:%s--%s", bGV, breitenGrad);
+                // printf("\nbreitenGrad:%s--%s", bGV, breitenGrad);
                 if (strcmp(bRV, breitenRichtung) == 0) {
-                    printf("\nbreitenRichtung:%s--%s", bRV, breitenRichtung);
+                    // printf("\nbreitenRichtung:%s--%s", bRV, breitenRichtung);
 
                     printf("\nGaragentor oeffnen lora senden\n");
-
-					// xTaskCreate(&task_tx, "task_tx", 2048, NULL, 5, NULL);
+					vTaskDelay(20000 / portTICK_RATE_MS);
+					input_state = 1;
                 }
             }
         }
@@ -130,28 +151,30 @@ void setVariable(char *laengenGrad,char *laengenRichtung,char *breitenGrad,char 
 char *roundChar(char *string) {
     char *wertChar;
     double wertDouble = atof(string);
-
-    wertDouble *= 1000;
+	
+    wertDouble *= 10;
     wertDouble = round(wertDouble);
-    wertDouble /= 1000;
-	char arr[sizeof(wertDouble)];
-	memcpy(arr,&wertDouble,sizeof(wertDouble));
+    wertDouble /= 10;
+	char arr[32];
+	sprintf(arr, "%f", wertDouble);
 	wertChar = arr;
+	// printf("Wert GPS: %s\n", wertChar);
     return wertChar;
 }
 
-void readGPS(char *base)
+void readGPS(char *base, int length)
 {
 	char newLaengenGrad[32];
     char newBreitenGrad[32];
 	char *lG;
     char *bG;
 
-	printf("Abschnitt gefunden: %s\n", base);
+	// printf("Abschnitt gefunden: %s\n", base);
 	char str[64], laengenGrad[32], laengenRichtung[32], breitenGrad[32], breitenRichtung[32], zeit[32], check1[32], check2[32];
-	base += 5;
+	base += length;
 	strcpy(str, base);
 
+	printf("\nString: %s\n", str);
 	strcpy(laengenGrad, strtok(str, ","));
 	strcpy(laengenRichtung, strtok(NULL, ","));
 	strcpy(breitenGrad, strtok(NULL, ","));
@@ -160,13 +183,13 @@ void readGPS(char *base)
 	strcpy(check1, strtok(NULL, ","));
 	strcpy(check2, strtok(NULL, ","));
 
-	printf("Laengengrad: %s\n", laengenGrad);
-	printf("Laengen Richtung: %s\n", laengenRichtung);
-	printf("Breitengrad: %s\n", breitenGrad);
-	printf("Breiten Richtung: %s\n", breitenRichtung);
-	printf("Zeit: %s\n", zeit);
-	printf("Check1: %s\n", check1);
-	printf("Check2: %s\n", check2);
+	// printf("Laengengrad: %s\n", laengenGrad);
+	// printf("Laengen Richtung: %s\n", laengenRichtung);
+	// printf("Breitengrad: %s\n", breitenGrad);
+	// printf("Breiten Richtung: %s\n", breitenRichtung);
+	// printf("Zeit: %s\n", zeit);
+	// printf("Check1: %s\n", check1);
+	// printf("Check2: %s\n\n\n", check2);
 
 
 
@@ -177,7 +200,8 @@ void readGPS(char *base)
     lG[strlen(lG)-3] = 0;
     bG = newBreitenGrad;
     bG[strlen(bG)-3] = 0;
-	// checkVariable(newLaengenGrad, laengenRichtung, newBreitenGrad, breitenRichtung);
+	checkVariable(newLaengenGrad, laengenRichtung, newBreitenGrad, breitenRichtung);
+
 }
 
 static void echo_task()
@@ -214,7 +238,7 @@ static void echo_task()
 void test_GPS(int uart_num, char *data){
 		// Read data from UART
 		int len = uart_read_bytes(uart_num, data, BUF_SIZE, 20 / portTICK_RATE_MS);
-		printf("Length: %d\n", len);
+		// printf("Length: %d\n", len);
 		if (len > 0)
 		{
 			char *string;
@@ -235,17 +259,14 @@ void test_GPS(int uart_num, char *data){
 					gpgl = strstr(ptr, "$GPGL");
 					if (gpgl)
 					{
-						// readGPS(ptr);
-						printf("Found GPGL\n");
+						readGPS(ptr, 5);
+						// printf("Found GPGL\n");
 					}	
 				} else {
-					// int gpLength = strlen(ptr);
 					gpgll = strstr(ptr, "A");
-					// if (gpLength > 10){
-						// printf("Found something: %s\n", gpgll);
-					// }
 					if (gpgll) {
-						printf("Found Coordinates: %s\n", gpgll);
+						gpgll = strstr(ptr, "$GPGLL");
+						readGPS(gpgll, 6);
 					}
 				}
 				// naechsten Abschnitt erstellen
@@ -256,7 +277,7 @@ void test_GPS(int uart_num, char *data){
 
 
 
-void app_main()
+void initGPS()
 {
 	char laengenGrad[] = "4914.13487";
     char newLaengenGrad[32];
@@ -273,8 +294,7 @@ void app_main()
     bG = newBreitenGrad;
     bG[strlen(bG)-3] = 0;
 
-    setVariable("4914.135", "N", "658.540", "E");
+    setVariable("4921.700", "N", "704.500", "E");
 
-	xTaskCreate(&echo_task, "uart_echo_task", 4096, NULL, 10, NULL);
+	xTaskCreate(&echo_task, "uart_echo_task", 4096, NULL, 5, NULL);
 }
-*/
